@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="kk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>My Media Player</title>
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#5b2eb7">
+
+  <!-- favicon -->
+  <link rel="icon" href="images/favicon.ico" type="image/x-icon">
+
+  <!-- styles -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app" class="app">
+    <header class="topbar">
+      <h1>My Media Player</h1>
+      <div class="top-actions">
+        <button id="installBtn" class="btn btn-install">Install</button>
+        <input id="fileInput" type="file" accept="audio/*,image/*" multiple hidden>
+        <button id="addBtn" class="btn">Файл қосу</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="left">
+        <div id="dropZone" class="dropzone">
+          <p>Әндерді осында сүйреп апарыңыз немесе "Файл қосу" батырмасын басып таңдаңыз.</p>
+          <p class="hint">(mp3, wav және суреттер: jpg/png)</p>
+        </div>
+
+        <ul id="playlist" class="playlist" aria-label="Playlist">
+          <!-- Tracks injected here -->
+        </ul>
+      </section>
+
+      <section class="right">
+        <div class="nowplaying">
+          <div class="coverwrap">
+            <img id="cover" class="cover" src="images/icon-192.png" alt="cover art">
+          </div>
+          <div class="meta">
+            <div id="title" class="title">Таңдалған ән жоқ</div>
+            <div id="artist" class="artist">Орындаушы жоқ</div>
+
+            <div class="controls">
+              <button id="prevBtn" class="circle control" title="Previous">⏮</button>
+              <button id="playBtn" class="circle control" title="Play/Pause">▶️</button>
+              <button id="nextBtn" class="circle control" title="Next">⏭</button>
+            </div>
+
+            <div class="progresswrap">
+              <span id="currentTime">0:00</span>
+              <input id="progress" type="range" min="0" max="100" value="0">
+              <span id="duration">0:00</span>
+            </div>
+
+            <div class="editrow">
+              <button id="editMetaBtn" class="btn">Edit metadata</button>
+              <button id="removeBtn" class="btn btn-danger">Delete track</button>
+            </div>
+          </div>
+        </div>
+
+        <audio id="audio" preload="auto"></audio>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <small>Made by Shakyy — My Media Player (2025)</small>
+    </footer>
+  </div>
+
+  <!-- Modal: edit metadata / add cover -->
+  <div id="metaModal" class="modal" aria-hidden="true">
+    <div class="modal-content">
+      <h3>Edit track info</h3>
+      <label>Title<br><input id="metaTitle" type="text"></label>
+      <label>Artist<br><input id="metaArtist" type="text"></label>
+      <label>Choose cover image<br><input id="metaCoverInput" type="file" accept="image/*"></label>
+      <div class="modal-actions">
+        <button id="saveMetaBtn" class="btn">Save</button>
+        <button id="cancelMetaBtn" class="btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <noscript><p style="color:white;padding:1rem;background:#2a1650">JavaScript қажет — қосымшаны толық пайдалану үшін JavaScript керек.</p></noscript>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
