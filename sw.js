@@ -13,9 +13,7 @@ const FILES_TO_CACHE = [
 // install
 self.addEventListener('install', (evt) => {
   evt.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(FILES_TO_CACHE);
-    })
+    caches.open(CACHE_NAME).then(cache => cache.addAll(FILES_TO_CACHE))
   );
   self.skipWaiting();
 });
@@ -30,20 +28,18 @@ self.addEventListener('activate', (evt) => {
   self.clients.claim();
 });
 
-// fetch: respond with cache first, then network, fallback to /index.html
+// fetch
 self.addEventListener('fetch', (evt) => {
   if (evt.request.method !== 'GET') return;
   evt.respondWith(
     caches.match(evt.request).then(cached => {
       if (cached) return cached;
       return fetch(evt.request).then(res => {
-        return caches.open(CACHE_NAME).then(cache => {
-          // avoid caching opaque responses (cross-origin)
-          try { if (res && res.type === 'basic') cache.put(evt.request, res.clone()); } catch(e){}
-          return res;
-        });
+        if (!res || res.status !== 200 || res.type !== 'basic') return res;
+        const resClone = res.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(evt.request, resClone));
+        return res;
       }).catch(() => {
-        // fallback for navigation requests
         if (evt.request.mode === 'navigate') return caches.match('/index.html');
       });
     })

@@ -1,6 +1,6 @@
 {
   "name": "My Media Player",
-  "short_name": "Player",
+  "short_name": "Media Player",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#5b2eb7",
