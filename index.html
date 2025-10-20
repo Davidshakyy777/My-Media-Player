@@ -20,7 +20,7 @@
     <header class="topbar">
       <h1>My Media Player</h1>
       <div class="top-actions">
-        <button id="installBtn" class="btn btn-install">Install</button>
+        <button id="installBtn" hidden>Install App</button>
         <input id="fileInput" type="file" accept="audio/*,image/*" multiple hidden>
         <button id="addBtn" class="btn">Файл қосу</button>
       </div>
@@ -58,6 +58,12 @@
               <input id="progress" type="range" min="0" max="100" value="0">
               <span id="duration">0:00</span>
             </div>
+
+            <div class="volume-wrap">
+              <label for="volume">🔊 Дыбыс:</label>
+              <input id="volume" type="range" min="0" max="1" step="0.01" value="1">
+            </div>
+
 
             <div class="editrow">
               <button id="editMetaBtn" class="btn">Edit metadata</button>

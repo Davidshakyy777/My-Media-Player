@@ -1,20 +1,18 @@
 // app.js (type="module")
-// Қысқаша: drag/drop және file input арқылы аудионы алып, IndexedDB-ге сақтап,
-// UI-да көрсетіп, ойнатуды басқарады. Service Worker пен install prompt-ты да өңдейді.
+// Аудио файлдарды IndexedDB-ге сақтап, PWA режимінде жұмыс істейтін ойнатқыш
 
 const dbName = 'my-media-player-db';
 const storeName = 'tracks';
 let db;
 
-// --- IndexedDB helper (қарапайым) ---
+// --- IndexedDB helper ---
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(dbName, 1);
     req.onupgradeneeded = () => {
       const idb = req.result;
       if (!idb.objectStoreNames.contains(storeName)) {
-        const store = idb.createObjectStore(storeName, { keyPath: 'id', autoIncrement: true });
-        // индекс қоюға болады: store.createIndex('title', 'title', { unique: false });
+        idb.createObjectStore(storeName, { keyPath: 'id', autoIncrement: true });
       }
     };
     req.onsuccess = () => { db = req.result; resolve(db); };
@@ -26,9 +24,9 @@ function addTrackToDB(track) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(storeName, 'readwrite');
     const store = tx.objectStore(storeName);
-    const q = store.add(track);
-    q.onsuccess = () => resolve(q.result);
-    q.onerror = () => reject(q.error);
+    const req = store.add(track);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
   });
 }
 
@@ -42,7 +40,7 @@ function getAllTracksFromDB() {
   });
 }
 
-function deleteTrackFromDB(id){
+function deleteTrackFromDB(id) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(storeName, 'readwrite');
     const store = tx.objectStore(storeName);
@@ -52,7 +50,17 @@ function deleteTrackFromDB(id){
   });
 }
 
-// --- DOM elements ---
+function putTrackToDB(track) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    const store = tx.objectStore(storeName);
+    const req = store.put(track);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// --- DOM Elements ---
 const fileInput = document.getElementById('fileInput');
 const addBtn = document.getElementById('addBtn');
 const dropZone = document.getElementById('dropZone');
@@ -69,56 +77,53 @@ const currentTimeEl = document.getElementById('currentTime');
 const durationEl = document.getElementById('duration');
 const editMetaBtn = document.getElementById('editMetaBtn');
 const removeBtn = document.getElementById('removeBtn');
-
+const installBtn = document.getElementById('installBtn');
 const metaModal = document.getElementById('metaModal');
 const metaTitle = document.getElementById('metaTitle');
 const metaArtist = document.getElementById('metaArtist');
 const metaCoverInput = document.getElementById('metaCoverInput');
 const saveMetaBtn = document.getElementById('saveMetaBtn');
 const cancelMetaBtn = document.getElementById('cancelMetaBtn');
+const volumeSlider = document.getElementById('volume');
 
-const installBtn = document.getElementById('installBtn');
-
-// app state
-let tracks = []; // loaded tracks from db: {id, title, artist, audioBlob, coverBlob, duration}
+// --- App State ---
+let tracks = [];
 let currentIndex = -1;
 let isPlaying = false;
 let deferredPrompt = null;
 
-// --- Service Worker registration ---
+// --- Service Worker ---
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW reg failed', err));
+  navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW failed', err));
 }
 
-// --- Install prompt handling ---
+// --- Install PWA ---
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  installBtn.hidden = false;
+  installBtn.style.display = "block";
 });
+
 installBtn.addEventListener('click', async () => {
   if (!deferredPrompt) return;
   deferredPrompt.prompt();
   const choice = await deferredPrompt.userChoice;
-  if (choice.outcome === 'accepted') {
-    console.log('App installed');
-  }
+  if (choice.outcome === 'accepted') console.log('App installed');
   deferredPrompt = null;
-  installBtn.hidden = true;
+  installBtn.style.display = "none";
 });
 
-// --- init DB and UI ---
+// --- Init ---
 async function init() {
   await openDB();
   tracks = await getAllTracksFromDB();
   renderPlaylist();
-  if (tracks.length) {
-    loadTrack(0);
-  }
+  if (tracks.length) loadTrack(0);
+  audio.volume = 1; // ✅ дыбыс бастапқыда 100%
 }
 init().catch(console.error);
 
-// --- handle add file button & input ---
+// --- Add Files ---
 addBtn.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', async (e) => {
   const files = Array.from(e.target.files);
@@ -126,60 +131,49 @@ fileInput.addEventListener('change', async (e) => {
   fileInput.value = '';
 });
 
-// --- drag & drop ---
+// --- Drag & Drop ---
 dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
 dropZone.addEventListener('drop', async (e) => {
-  e.preventDefault(); dropZone.classList.remove('dragover');
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
   const files = Array.from(e.dataTransfer.files);
   await handleFiles(files);
 });
 
-// --- process files: accept audio and images ---
+// --- Handle Files ---
 async function handleFiles(files) {
-  // Group audio files and image files separately; for each audio create a record, optional cover if image exists with same basename
   const audioFiles = files.filter(f => f.type.startsWith('audio/'));
   const imageFiles = files.filter(f => f.type.startsWith('image/'));
 
-  // map image name -> blob
-  const imageMap = {};
-  for (const img of imageFiles) {
-    imageMap[img.name] = img;
-  }
-
   for (const f of audioFiles) {
-    // try to set title from filename
     const name = f.name.replace(/\.[^/.]+$/, '');
     const track = {
       title: name,
       artist: 'Unknown',
-      audioBlob: await f.arrayBuffer().then(buf => new Blob([buf], {type: f.type})),
+      audioBlob: await f.arrayBuffer().then(buf => new Blob([buf], { type: f.type })),
       coverBlob: null,
       duration: 0,
       created: Date.now()
     };
 
-    // assign cover if an image with same basename exists
     const base = f.name.replace(/\.[^/.]+$/, '');
     const matchingImage = imageFiles.find(img => img.name.replace(/\.[^/.]+$/, '') === base);
     if (matchingImage) {
-      track.coverBlob = await matchingImage.arrayBuffer().then(buf => new Blob([buf], {type: matchingImage.type}));
+      track.coverBlob = await matchingImage.arrayBuffer().then(buf => new Blob([buf], { type: matchingImage.type }));
     }
 
-    // save to DB
-    const id = await addTrackToDB(track);
+    await computeDurationForTrack(track); // ⬅️ Алдымен ұзақтығын есептеу
+    const id = await addTrackToDB(track); // ⬅️ Сосын сақтау
     track.id = id;
     tracks.push(track);
-
-    // attempt to compute duration
-    await computeDurationForTrack(track);
   }
 
   renderPlaylist();
   if (currentIndex === -1 && tracks.length) loadTrack(0);
 }
 
-// compute duration using temporary audio element
+// --- Compute Duration ---
 function computeDurationForTrack(track) {
   return new Promise((resolve) => {
     const tmp = document.createElement('audio');
@@ -190,60 +184,70 @@ function computeDurationForTrack(track) {
       URL.revokeObjectURL(url);
       resolve();
     });
-    tmp.addEventListener('error', () => { resolve(); });
+    tmp.addEventListener('error', () => resolve());
   });
 }
 
-// --- render playlist ---
+// --- Render Playlist ---
 function renderPlaylist() {
   playlistEl.innerHTML = '';
   tracks.forEach((t, idx) => {
     const li = document.createElement('li');
     li.className = 'track-item';
     li.dataset.index = idx;
-    li.innerHTML = `<div class="leftcol">
-                      <div style="font-weight:600">${t.title}</div>
-                      <div style="font-size:0.85rem;color:#cfc0ff">${t.artist}</div>
-                    </div>
-                    <div class="rightcol">${formatTime(t.duration)}</div>`;
+    li.innerHTML = `
+      <div class="leftcol">
+        <div style="font-weight:600">${t.title}</div>
+        <div style="font-size:0.85rem;color:#cfc0ff">${t.artist}</div>
+      </div>
+      <div class="rightcol">${formatTime(t.duration)}</div>`;
     li.addEventListener('click', () => {
-      loadTrack(Number(li.dataset.index));
+      loadTrack(idx);
       play();
     });
     playlistEl.appendChild(li);
   });
 }
 
-// --- load a track into player ---
+// --- Load Track ---
 function loadTrack(index) {
   if (index < 0 || index >= tracks.length) return;
   currentIndex = index;
   const t = tracks[index];
-  // audio object URL
+
+  if (audio.src) URL.revokeObjectURL(audio.src);
   const url = URL.createObjectURL(t.audioBlob);
   audio.src = url;
+
   titleEl.textContent = t.title;
   artistEl.textContent = t.artist || 'Unknown';
   durationEl.textContent = formatTime(t.duration);
-  if (t.coverBlob) {
-    coverEl.src = URL.createObjectURL(t.coverBlob);
-  } else {
-    coverEl.src = 'images/icon-192.png';
-  }
+  coverEl.src = t.coverBlob ? URL.createObjectURL(t.coverBlob) : 'images/icon-192.png';
+
   highlightPlaylistItem(index);
 }
 
-// update UI highlight
+// --- Highlight Playlist Item ---
 function highlightPlaylistItem(index) {
   playlistEl.querySelectorAll('li').forEach(li => li.classList.remove('active'));
   const el = playlistEl.querySelector(`li[data-index="${index}"]`);
   if (el) el.classList.add('active');
 }
 
-// --- playback controls ---
-playBtn.addEventListener('click', () => { if (isPlaying) pause(); else play(); });
-prevBtn.addEventListener('click', () => { if (tracks.length) { loadTrack((currentIndex -1 + tracks.length)%tracks.length); play(); }});
-nextBtn.addEventListener('click', () => { if (tracks.length) { loadTrack((currentIndex +1)%tracks.length); play(); }});
+// --- Playback Controls ---
+playBtn.addEventListener('click', () => isPlaying ? pause() : play());
+prevBtn.addEventListener('click', () => {
+  if (tracks.length) {
+    loadTrack((currentIndex - 1 + tracks.length) % tracks.length);
+    play();
+  }
+});
+nextBtn.addEventListener('click', () => {
+  if (tracks.length) {
+    loadTrack((currentIndex + 1) % tracks.length);
+    play();
+  }
+});
 
 audio.addEventListener('timeupdate', () => {
   if (!isNaN(audio.duration)) {
@@ -252,12 +256,11 @@ audio.addEventListener('timeupdate', () => {
     currentTimeEl.textContent = formatTime(Math.floor(audio.currentTime));
   }
 });
-audio.addEventListener('ended', () => { nextBtn.click(); });
+audio.addEventListener('ended', () => nextBtn.click());
 
-// progress seek
 progress.addEventListener('input', () => {
   if (!isNaN(audio.duration)) {
-    audio.currentTime = (progress.value/100) * audio.duration;
+    audio.currentTime = (progress.value / 100) * audio.duration;
   }
 });
 
@@ -273,26 +276,33 @@ function pause() {
   playBtn.textContent = '▶️';
 }
 
-// remove track
+// --- Volume Control ---
+if (volumeSlider) {
+  volumeSlider.addEventListener('input', () => {
+    audio.volume = volumeSlider.value;
+  });
+}
+
+// --- Remove Track ---
 removeBtn.addEventListener('click', async () => {
   if (currentIndex === -1) return;
   const id = tracks[currentIndex].id;
   await deleteTrackFromDB(id);
-  tracks.splice(currentIndex,1);
-  if (tracks.length === 0) {
+  tracks.splice(currentIndex, 1);
+  if (!tracks.length) {
     currentIndex = -1;
     audio.src = '';
-    titleEl.textContent = 'There is no selected song';
-    artistEl.textContent = 'there is no singer';
+    titleEl.textContent = 'No song selected';
+    artistEl.textContent = '';
     coverEl.src = 'images/icon-192.png';
   } else {
-    const next = Math.min(currentIndex, tracks.length-1);
+    const next = Math.min(currentIndex, tracks.length - 1);
     loadTrack(next);
   }
   renderPlaylist();
 });
 
-// edit metadata modal
+// --- Edit Meta Modal ---
 editMetaBtn.addEventListener('click', () => {
   if (currentIndex === -1) return;
   const t = tracks[currentIndex];
@@ -308,33 +318,21 @@ saveMetaBtn.addEventListener('click', async () => {
   const t = tracks[currentIndex];
   t.title = metaTitle.value || t.title;
   t.artist = metaArtist.value || t.artist;
-  // if cover file chosen
+
   if (metaCoverInput.files && metaCoverInput.files[0]) {
     const img = metaCoverInput.files[0];
-    t.coverBlob = await img.arrayBuffer().then(buf => new Blob([buf], {type: img.type}));
+    t.coverBlob = await img.arrayBuffer().then(buf => new Blob([buf], { type: img.type }));
   }
-  // update DB (simple put by id)
   await putTrackToDB(t);
   metaModal.classList.remove('show');
   renderPlaylist();
   loadTrack(currentIndex);
 });
 
-// helper: put (replace) track in DB
-function putTrackToDB(track) {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readwrite');
-    const store = tx.objectStore(storeName);
-    const req = store.put(track);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
-}
-
-// --- utilities ---
+// --- Utils ---
 function formatTime(s) {
   if (!s && s !== 0) return '0:00';
-  const mm = Math.floor(s/60);
+  const mm = Math.floor(s / 60);
   const ss = s % 60;
-  return `${mm}:${ss.toString().padStart(2,'0')}`;
+  return `${mm}:${ss.toString().padStart(2, '0')}`;
 }
