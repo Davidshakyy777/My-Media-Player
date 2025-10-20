@@ -63,7 +63,6 @@ function putTrackToDB(track) {
 // --- DOM Elements ---
 const fileInput = document.getElementById('fileInput');
 const addBtn = document.getElementById('addBtn');
-const dropZone = document.getElementById('dropZone');
 const playlistEl = document.getElementById('playlist');
 const audio = document.getElementById('audio');
 const coverEl = document.getElementById('cover');
@@ -94,7 +93,9 @@ let deferredPrompt = null;
 
 // --- Service Worker ---
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW failed', err));
+  navigator.serviceWorker.register('sw.js')
+    .then(() => console.log('SW registered'))
+    .catch(err => console.warn('SW failed', err));
 }
 
 // --- Install PWA ---
@@ -119,26 +120,18 @@ async function init() {
   tracks = await getAllTracksFromDB();
   renderPlaylist();
   if (tracks.length) loadTrack(0);
-  audio.volume = 1; // ✅ дыбыс бастапқыда 100%
+  audio.volume = 1; // дыбыс бастапқыда 100%
 }
 init().catch(console.error);
 
-// --- Add Files ---
+// --- Add Files via Button Only ---
 addBtn.addEventListener('click', () => fileInput.click());
+
 fileInput.addEventListener('change', async (e) => {
   const files = Array.from(e.target.files);
+  if (!files.length) return;
   await handleFiles(files);
   fileInput.value = '';
-});
-
-// --- Drag & Drop ---
-dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-dropZone.addEventListener('drop', async (e) => {
-  e.preventDefault();
-  dropZone.classList.remove('dragover');
-  const files = Array.from(e.dataTransfer.files);
-  await handleFiles(files);
 });
 
 // --- Handle Files ---
@@ -157,14 +150,15 @@ async function handleFiles(files) {
       created: Date.now()
     };
 
+    // Автоматты cover іздеу
     const base = f.name.replace(/\.[^/.]+$/, '');
     const matchingImage = imageFiles.find(img => img.name.replace(/\.[^/.]+$/, '') === base);
     if (matchingImage) {
       track.coverBlob = await matchingImage.arrayBuffer().then(buf => new Blob([buf], { type: matchingImage.type }));
     }
 
-    await computeDurationForTrack(track); // ⬅️ Алдымен ұзақтығын есептеу
-    const id = await addTrackToDB(track); // ⬅️ Сосын сақтау
+    await computeDurationForTrack(track);
+    const id = await addTrackToDB(track);
     track.id = id;
     tracks.push(track);
   }
@@ -336,10 +330,3 @@ function formatTime(s) {
   const ss = s % 60;
   return `${mm}:${ss.toString().padStart(2, '0')}`;
 }
-
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js')
-    .then(() => console.log('SW registered'))
-    .catch(err => console.warn('SW failed', err));
-}
-
